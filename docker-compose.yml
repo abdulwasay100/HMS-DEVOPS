@@ -1,0 +1,44 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: hms-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: hms
+      MYSQL_USER: hms_user
+      MYSQL_PASSWORD: HMS@12345
+    ports:
+      - "3308:3306"
+    volumes:
+      - hms_mysql_data:/var/lib/mysql
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: hms-backend
+    restart: unless-stopped
+    env_file:
+      - backend/.env
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+    ports:
+      - "4001:4000"
+    depends_on:
+      - mysql
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hms-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend
+
+volumes:
+  hms_mysql_data:
