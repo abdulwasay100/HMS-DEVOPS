@@ -1,0 +1,101 @@
+name: Deploy HMS to GCP
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: hms-devops-510406
+  REGION: asia-south1
+  REPOSITORY: hms-repo
+  BACKEND_SERVICE: hms-backend
+  FRONTEND_SERVICE: hms-frontend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Authenticate GitHub Actions with GCP using Workload Identity Federation
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/609703755852/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider
+          service_account: github-actions-hms@hms-devops-510406.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      # Authenticate Docker with Artifact Registry
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # -------------------------
+      # Backend
+      # -------------------------
+
+      - name: Build backend Docker image
+        run: |
+          docker build \
+            -f backend/Dockerfile \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/hms-backend:${{ github.sha }} \
+            .
+
+      - name: Push backend Docker image
+        run: |
+          docker push \
+            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/hms-backend:${{ github.sha }}
+
+      - name: Deploy backend to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.BACKEND_SERVICE }} \
+            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/hms-backend:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --service-account=609703755852-compute@developer.gserviceaccount.com \
+            --port=8080 \
+            --set-env-vars="NODE_ENV=production,DB_HOST=172.19.0.3,DB_PORT=3306,DB_USER=hms_user,DB_NAME=hms,DB_CONNECTION_LIMIT=10,CORS_ORIGIN=https://hms-frontend-vnu5cxvita-el.a.run.app" \
+            --set-secrets="DB_PASSWORD=hms-db-password:latest,JWT_SECRET=hms-jwt-secret:latest" \
+            --vpc-connector=hms-connector \
+            --vpc-egress=private-ranges-only \
+            --add-cloudsql-instances=hms-devops-510406:asia-south1:hms-mysql \
+            --max=3 \
+            --cpu-boost
+
+      # -------------------------
+      # Frontend
+      # -------------------------
+
+      - name: Build frontend Docker image
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_API_URL=https://hms-backend-vnu5cxvita-el.a.run.app \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/hms-frontend:${{ github.sha }} \
+            ./frontend
+
+      - name: Push frontend Docker image
+        run: |
+          docker push \
+            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/hms-frontend:${{ github.sha }}
+
+      - name: Deploy frontend to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.FRONTEND_SERVICE }} \
+            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/hms-frontend:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --port=3000
+
