@@ -59,7 +59,7 @@ export default function LoginPage() {
             Rooms, restaurant, stock and billing - all in one place.
           </h2>
           <p className="mt-4 max-w-md text-slate-300">
-            Manage bookings, kitchen orders and inventory with a single, streamlined console built for hotel teams.
+            Manage bookings, kitchen orders, inventory & many more with a single, streamlined console built for hotel teams.
           </p>
         </div>
         <p className="text-sm text-slate-400">Authorized staff only.</p>
